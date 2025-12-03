@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import { ShelfEntry } from './shelfItem';
 import { GitFileStatus } from './gitUtils';
+import { getShelfDirectory } from './shelfUtils';
 
 const execAsync = promisify(exec);
 
@@ -17,7 +18,7 @@ export async function createShelfEntryFromGitFiles(
     fileStatuses: GitFileStatus[],
     repoPath: string
 ): Promise<ShelfEntry> {
-    const shelfDir = path.join(context.globalStoragePath, 'shelf');
+    const shelfDir = getShelfDirectory(context);
     if (!fs.existsSync(shelfDir)) {
         fs.mkdirSync(shelfDir, { recursive: true });
     }
@@ -76,7 +77,7 @@ export async function createShelfEntry(
     changes: vscode.SourceControlResourceState[],
     repository?: any
 ): Promise<ShelfEntry> {
-    const shelfDir = path.join(context.globalStoragePath, 'shelf');
+    const shelfDir = getShelfDirectory(context);
     if (!fs.existsSync(shelfDir)) {
         fs.mkdirSync(shelfDir, { recursive: true });
     }

@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ShelfItem } from './shelfItem';
 import { ShelfProvider } from './shelfProvider';
+import { getShelfDirectory } from './shelfUtils';
 
 let shelfProvider: ShelfProvider;
 
@@ -16,7 +17,8 @@ export function setShelfProvider(provider: ShelfProvider): void {
 export async function viewDiff(item: ShelfItem): Promise<void> {
     const entry = item.entry;
     const context = shelfProvider.getContext();
-    const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
+    const shelfDir = getShelfDirectory(context);
+    const entryDir = path.join(shelfDir, entry.id);
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
         vscode.window.showErrorMessage('No workspace folder found');
@@ -107,7 +109,8 @@ async function showDeletedFileDiff(
     context: vscode.ExtensionContext
 ): Promise<void> {
     // Create a temporary empty file for comparison
-    const tempDir = path.join(context.globalStoragePath, 'shelf', 'temp');
+    const shelfDir = getShelfDirectory(context);
+    const tempDir = path.join(shelfDir, 'temp');
     if (!fs.existsSync(tempDir)) {
         fs.mkdirSync(tempDir, { recursive: true });
     }

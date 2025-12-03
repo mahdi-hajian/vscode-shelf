@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ShelfItem, ShelfEntry } from './shelfItem';
+import { getShelfDirectory } from './shelfUtils';
 
 export class ShelfProvider implements vscode.TreeDataProvider<ShelfItem> {
     private _onDidChangeTreeData: vscode.EventEmitter<ShelfItem | undefined | null | void> = new vscode.EventEmitter<ShelfItem | undefined | null | void>();
@@ -70,7 +71,7 @@ export class ShelfProvider implements vscode.TreeDataProvider<ShelfItem> {
     }
 
     private loadShelfEntries(): void {
-        const shelfDir = path.join(this.context.globalStoragePath, 'shelf');
+        const shelfDir = getShelfDirectory(this.context);
         this.entries = [];
 
         if (!fs.existsSync(shelfDir)) {

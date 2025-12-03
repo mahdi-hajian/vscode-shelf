@@ -62,6 +62,11 @@ export function activate(context: vscode.ExtensionContext): void {
         shelfProvider.refresh();
     });
 
+    // Refresh shelf when workspace folders change (per project shelf)
+    const workspaceChangeListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        shelfProvider.refresh();
+    });
+
     context.subscriptions.push(
         shelveChangesCommand,
         shelveSelectedFilesCommand,
@@ -70,7 +75,8 @@ export function activate(context: vscode.ExtensionContext): void {
         deleteCommand,
         clearAllCommand,
         viewDiffCommand,
-        refreshCommand
+        refreshCommand,
+        workspaceChangeListener
     );
 }
 

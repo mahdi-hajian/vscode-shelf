@@ -2,7 +2,7 @@
   "name": "vscode-shelf",
   "displayName": "Shelf",
   "description": "Temporarily save changes without committing - like WebStorm's Shelf",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "mahdihajian",
   "icon": "icon.png",
   "author": "mahdihajian",

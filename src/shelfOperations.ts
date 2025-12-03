@@ -12,6 +12,7 @@ import {
     GitFileStatus 
 } from './gitUtils';
 import { createShelfEntryFromGitFiles, createShelfEntry } from './shelfStorage';
+import { getShelfDirectory } from './shelfUtils';
 
 let shelfProvider: ShelfProvider;
 
@@ -258,7 +259,8 @@ async function processSelectedFiles(
  */
 export async function unshelveAll(context: vscode.ExtensionContext, item: ShelfItem): Promise<void> {
     const entry = item.entry;
-    const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
+    const shelfDir = getShelfDirectory(context);
+    const entryDir = path.join(shelfDir, entry.id);
 
     if (!fs.existsSync(entryDir)) {
         vscode.window.showErrorMessage('Shelf entry not found');
@@ -356,7 +358,8 @@ export async function unshelveSelection(context: vscode.ExtensionContext, item: 
     let restoredCount = 0;
     let errorCount = 0;
 
-    const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
+    const shelfDir = getShelfDirectory(context);
+    const entryDir = path.join(shelfDir, entry.id);
     if (!fs.existsSync(entryDir)) {
         vscode.window.showErrorMessage('Shelf entry not found');
         return;
@@ -417,7 +420,8 @@ export async function deleteShelfItem(context: vscode.ExtensionContext, item: Sh
     );
 
     if (confirmed === 'Delete') {
-        const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
+        const shelfDir = getShelfDirectory(context);
+        const entryDir = path.join(shelfDir, entry.id);
         if (fs.existsSync(entryDir)) {
             fs.rmSync(entryDir, { recursive: true, force: true });
             shelfProvider.removeShelfEntry(entry.id);
@@ -437,7 +441,7 @@ export async function clearAll(context: vscode.ExtensionContext): Promise<void> 
     );
 
     if (confirmed === 'Clear All') {
-        const shelfDir = path.join(context.globalStoragePath, 'shelf');
+        const shelfDir = getShelfDirectory(context);
         if (fs.existsSync(shelfDir)) {
             fs.rmSync(shelfDir, { recursive: true, force: true });
             fs.mkdirSync(shelfDir, { recursive: true });
