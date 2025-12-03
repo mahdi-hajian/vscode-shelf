@@ -91,14 +91,14 @@ async function getChangedFilesFromGit(repoPath: string): Promise<GitFileStatus[]
     try {
         // Get all changed files (modified, added, deleted, untracked)
         const { stdout } = await execAsync('git status --porcelain', { cwd: repoPath });
-        const lines = stdout.trim().split('\n').filter(line => line.trim());
+        const lines = stdout.trim().split('\n').filter(line => line.trim()).map(line => line.trim());
         
         const files: GitFileStatus[] = [];
         for (const line of lines) {
             // git status --porcelain format: XY filename
             // X = index status, Y = working tree status
             const status = line.substring(0, 2);
-            const filePath = line.substring(3).trim();
+            const filePath = line.substring(2).trim();
             
             // Include modified (M), added (A), deleted (D), renamed (R), copied (C), untracked (?)
             if (status[1] !== ' ' || status[0] !== ' ') {
