@@ -335,8 +335,15 @@ async function unshelve(context: vscode.ExtensionContext, item: ShelfItem) {
         vscode.window.showInformationMessage(
             `Unshelved ${restoredCount} file(s)${errorCount > 0 ? ` (${errorCount} error(s))` : ''}`
         );
-        // Refresh the workspace
-        vscode.commands.executeCommand('workbench.files.action.refreshFilesExplorer');
+        // Refresh source control to show changes (without switching tabs)
+        const gitExtension = vscode.extensions.getExtension('vscode.git');
+        if (gitExtension) {
+            const git = gitExtension.exports.getAPI(1);
+            if (git && git.repositories.length > 0) {
+                // Refresh repository state without switching focus
+                git.repositories[0].state.load();
+            }
+        }
     } else {
         vscode.window.showErrorMessage('Failed to unshelve files');
     }
