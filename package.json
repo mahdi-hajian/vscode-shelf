@@ -1,8 +1,8 @@
 {
   "name": "vscode-shelf",
-  "displayName": "Shelf",
-  "description": "Temporarily save changes without committing - like WebStorm's Shelf",
-  "version": "0.2.0",
+  "displayName": "Shelf - Save Changes Temporarily",
+  "description": "Shelf extension for VS Code - Temporarily save and manage uncommitted changes without committing, similar to WebStorm's Shelf feature",
+  "version": "0.2.1",
   "publisher": "mahdihajian",
   "icon": "icon.png",
   "author": "mahdihajian",
@@ -17,12 +17,15 @@
     "vscode": "^1.80.0"
   },
   "categories": [
-    "Other",
-    "SCM Providers"
+    "SCM Providers",
+    "Other"
   ],
   "keywords": [
     "shelf",
     "shelve",
+    "unshelve",
+    "shelf extension",
+    "vscode shelf",
     "stash",
     "temporary",
     "save",
