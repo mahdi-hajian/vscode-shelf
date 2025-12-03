@@ -3,6 +3,13 @@
   "displayName": "Shelf",
   "description": "Temporarily save changes without committing - like WebStorm's Shelf",
   "author": "mahdihajian",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mahdi-hajian/vscode-shelf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mahdi-hajian/vscode-shelf/issues"
+  },
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.80.0"

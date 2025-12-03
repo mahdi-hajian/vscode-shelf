@@ -76,6 +76,11 @@ npm run compile
 npm run watch
 ```
 
+## Links
+
+- **Repository**: [https://github.com/mahdi-hajian/vscode-shelf](https://github.com/mahdi-hajian/vscode-shelf)
+- **Issues**: [https://github.com/mahdi-hajian/vscode-shelf/issues](https://github.com/mahdi-hajian/vscode-shelf/issues)
+
 ## License
 
 MIT
