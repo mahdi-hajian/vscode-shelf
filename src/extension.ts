@@ -19,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
         await shelveChanges(context);
     });
 
-    const shelveSelectedFilesCommand = vscode.commands.registerCommand('shelf.shelveSelectedFiles', async (uri?: vscode.Uri) => {
+    const shelveSelectedFilesCommand = vscode.commands.registerCommand('shelf.shelveSelectedFiles', async (uri?: vscode.Uri | vscode.SourceControlResourceState) => {
         await shelveSelectedFiles(context, uri);
     });
 
@@ -97,7 +97,7 @@ async function shelveChanges(context: vscode.ExtensionContext) {
     }
 
     try {
-        const shelfEntry = await createShelfEntry(context, name, changes);
+        const shelfEntry = await createShelfEntry(context, name, changes, repository);
         shelfProvider.addShelfEntry(shelfEntry);
         vscode.window.showInformationMessage(`Changes shelved: ${name}`);
     } catch (error) {
@@ -107,7 +107,7 @@ async function shelveChanges(context: vscode.ExtensionContext) {
     }
 }
 
-async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscode.Uri) {
+async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscode.Uri | vscode.SourceControlResourceState) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showErrorMessage('No workspace folder found');
@@ -133,22 +133,32 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
     }
 
     let filesToShelve: vscode.Uri[] = [];
+    let changes: vscode.SourceControlResourceState[] = [];
     
     if (uri) {
-        filesToShelve = [uri];
+        // Check if uri is a SourceControlResourceState
+        if ('resourceUri' in uri && uri.resourceUri) {
+            // It's a SourceControlResourceState from context menu
+            changes = [uri as vscode.SourceControlResourceState];
+        } else if (uri instanceof vscode.Uri) {
+            // It's a Uri
+            filesToShelve = [uri];
+            changes = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
+                change.resourceUri && change.resourceUri.fsPath === uri.fsPath
+            );
+        }
     } else {
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
             filesToShelve = [activeEditor.document.uri];
+            changes = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
+                change.resourceUri && change.resourceUri.fsPath === activeEditor.document.uri.fsPath
+            );
         } else {
             vscode.window.showInformationMessage('No file selected');
             return;
         }
     }
-
-    const changes = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
-        change.resourceUri && filesToShelve.some(file => file.fsPath === change.resourceUri!.fsPath)
-    );
 
     if (changes.length === 0) {
         vscode.window.showInformationMessage('No changes to shelve for selected files');
@@ -165,7 +175,7 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
     }
 
     try {
-        const shelfEntry = await createShelfEntry(context, name, changes);
+        const shelfEntry = await createShelfEntry(context, name, changes, repository);
         shelfProvider.addShelfEntry(shelfEntry);
         vscode.window.showInformationMessage(`Changes shelved: ${name}`);
     } catch (error) {
@@ -178,7 +188,8 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
 async function createShelfEntry(
     context: vscode.ExtensionContext,
     name: string,
-    changes: vscode.SourceControlResourceState[]
+    changes: vscode.SourceControlResourceState[],
+    repository?: any
 ): Promise<ShelfEntry> {
     const shelfDir = path.join(context.globalStoragePath, 'shelf');
     if (!fs.existsSync(shelfDir)) {
@@ -204,23 +215,59 @@ async function createShelfEntry(
         }
 
         try {
-            const relativePath = path.relative(workspacePath, change.resourceUri.fsPath);
+            const fileUri = change.resourceUri;
+            const relativePath = path.relative(workspacePath, fileUri.fsPath);
+            
+            // Skip if relative path is invalid (outside workspace)
+            if (relativePath.startsWith('..')) {
+                console.warn(`Skipping file outside workspace: ${fileUri.fsPath}`);
+                continue;
+            }
+
             const fileDir = path.join(entryDir, path.dirname(relativePath));
-            fs.mkdirSync(fileDir, { recursive: true });
+            if (!fs.existsSync(fileDir)) {
+                fs.mkdirSync(fileDir, { recursive: true });
+            }
             
             const filePath = path.join(entryDir, relativePath);
-            const content = await vscode.workspace.fs.readFile(change.resourceUri);
+            let content: Uint8Array;
+
+            // Try to read file content
+            try {
+                // First, try to read from filesystem (works for existing files)
+                if (fs.existsSync(fileUri.fsPath)) {
+                    content = await vscode.workspace.fs.readFile(fileUri);
+                } else {
+                    // File doesn't exist in filesystem - might be deleted or untracked
+                    // Try to read using workspace.fs API (might work for some cases)
+                    try {
+                        content = await vscode.workspace.fs.readFile(fileUri);
+                    } catch {
+                        // If that fails, check if it's a deleted file and try to get from Git
+                        // For now, we'll create an empty file marker
+                        content = new Uint8Array(0);
+                        console.warn(`File ${fileUri.fsPath} not found, saving as empty`);
+                    }
+                }
+            } catch (readError) {
+                const errorMsg = readError instanceof Error ? readError.message : String(readError);
+                console.error(`Error reading file ${fileUri.fsPath}: ${errorMsg}`);
+                // Skip this file
+                continue;
+            }
+
+            // Write the content to shelf
             fs.writeFileSync(filePath, content);
-            
-            files[relativePath] = change.resourceUri.fsPath;
+            files[relativePath] = fileUri.fsPath;
         } catch (error) {
-            console.error(`Failed to shelve file ${change.resourceUri.fsPath}:`, error);
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`Failed to shelve file ${change.resourceUri.fsPath}: ${errorMsg}`);
             // Continue with other files
         }
     }
 
     if (Object.keys(files).length === 0) {
-        throw new Error('No files were successfully shelved');
+        throw new Error('No files were successfully shelved. Make sure you have uncommitted changes.');
     }
 
     const entry: ShelfEntry = {

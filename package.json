@@ -2,6 +2,7 @@
   "name": "vscode-shelf",
   "displayName": "Shelf",
   "description": "Temporarily save changes without committing - like WebStorm's Shelf",
+  "author": "mahdihajian",
   "version": "0.1.0",
   "engines": {
     "vscode": "^1.80.0"
@@ -56,11 +57,10 @@
       }
     ],
       "views": {
-      "explorer": [
+      "scm": [
         {
           "id": "shelfView",
-          "name": "Shelf",
-          "when": "true"
+          "name": "Shelf"
         }
       ]
     },
