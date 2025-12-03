@@ -389,15 +389,35 @@ async function viewDiff(item: ShelfItem) {
     }
     const workspacePath = workspaceFolder.uri.fsPath;
 
-    const filePath = item.filePath;
+    let filePath = item.filePath;
+    
+    // If no file selected (clicked on shelf entry), let user choose
     if (!filePath) {
-        vscode.window.showErrorMessage('No file selected');
-        return;
+        const fileKeys = Object.keys(entry.files);
+        if (fileKeys.length === 0) {
+            vscode.window.showErrorMessage('No files in this shelf');
+            return;
+        }
+        
+        if (fileKeys.length === 1) {
+            // Only one file, use it automatically
+            filePath = fileKeys[0];
+        } else {
+            // Multiple files, let user choose
+            const selected = await vscode.window.showQuickPick(
+                fileKeys.map(f => ({ label: path.basename(f), description: f, value: f })),
+                { placeHolder: 'Select a file to view diff' }
+            );
+            
+            if (!selected) {
+                return;
+            }
+            filePath = selected.value;
+        }
     }
 
     const relativePath = filePath;
     const shelfFilePath = path.join(entryDir, relativePath);
-    const currentFilePath = path.join(workspacePath, relativePath);
 
     if (!fs.existsSync(shelfFilePath)) {
         vscode.window.showErrorMessage('Shelf file not found');
@@ -405,21 +425,49 @@ async function viewDiff(item: ShelfItem) {
     }
 
     const shelfUri = vscode.Uri.file(shelfFilePath);
-    const currentUri = fs.existsSync(currentFilePath) 
-        ? vscode.Uri.file(currentFilePath)
-        : undefined;
+    const currentFilePath = path.join(workspacePath, relativePath);
+    const fileExists = fs.existsSync(currentFilePath);
 
-    if (currentUri) {
+    if (fileExists) {
+        // File exists - show diff: current (left) vs shelf (right)
+        const currentUri = vscode.Uri.file(currentFilePath);
         await vscode.commands.executeCommand(
             'vscode.diff',
             currentUri,
             shelfUri,
-            `Shelf: ${entry.name} - ${path.basename(relativePath)}`
+            `${path.basename(relativePath)} (Current ↔ Shelf: ${entry.name})`
         );
     } else {
-        // File doesn't exist in workspace, just open the shelf version
-        const doc = await vscode.workspace.openTextDocument(shelfUri);
-        await vscode.window.showTextDocument(doc);
+        // File doesn't exist (deleted) - show diff with empty file
+        // Create a temporary empty file for comparison
+        const tempDir = path.join(context.globalStoragePath, 'shelf', 'temp');
+        if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+        }
+        const tempFilePath = path.join(tempDir, path.basename(relativePath));
+        
+        // Create empty file
+        fs.writeFileSync(tempFilePath, '');
+        const tempUri = vscode.Uri.file(tempFilePath);
+
+        // Show diff: empty (left) vs shelf (right)
+        await vscode.commands.executeCommand(
+            'vscode.diff',
+            tempUri,
+            shelfUri,
+            `${path.basename(relativePath)} (Deleted ↔ Shelf: ${entry.name})`
+        );
+
+        // Clean up temp file after a delay
+        setTimeout(() => {
+            try {
+                if (fs.existsSync(tempFilePath)) {
+                    fs.unlinkSync(tempFilePath);
+                }
+            } catch (error) {
+                // Ignore cleanup errors
+            }
+        }, 1000);
     }
 }
 
