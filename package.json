@@ -4,6 +4,7 @@
   "description": "Temporarily save changes without committing - like WebStorm's Shelf",
   "version": "0.1.0",
   "publisher": "mahdihajian",
+  "icon": "icon.png",
   "author": "mahdihajian",
   "repository": {
     "type": "git",
