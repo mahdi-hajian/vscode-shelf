@@ -254,9 +254,9 @@ async function processSelectedFiles(
 }
 
 /**
- * Unshelves files from a shelf entry
+ * Unshelves all files from a shelf entry
  */
-export async function unshelve(context: vscode.ExtensionContext, item: ShelfItem): Promise<void> {
+export async function unshelveAll(context: vscode.ExtensionContext, item: ShelfItem): Promise<void> {
     const entry = item.entry;
     const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
 
@@ -309,6 +309,97 @@ export async function unshelve(context: vscode.ExtensionContext, item: ShelfItem
         );
         // Git repository state will automatically refresh when files change
         // No need to manually call load() as it doesn't exist in the API
+    } else {
+        vscode.window.showErrorMessage('Failed to unshelve files');
+    }
+}
+
+/**
+ * Unshelves selected files from a shelf entry
+ */
+export async function unshelveSelection(context: vscode.ExtensionContext, item: ShelfItem): Promise<void> {
+    const entry = item.entry;
+    
+    // Only allow selection for shelf entries (not individual files)
+    if (item.filePath) {
+        vscode.window.showErrorMessage('This command can only be used on shelf entries, not individual files');
+        return;
+    }
+
+    const filePaths = Object.keys(entry.files);
+    if (filePaths.length === 0) {
+        vscode.window.showInformationMessage('No files in this shelf entry');
+        return;
+    }
+
+    // Create quick pick items for file selection
+    const quickPickItems: vscode.QuickPickItem[] = filePaths.map(relativePath => ({
+        label: path.basename(relativePath),
+        description: relativePath,
+        detail: `File: ${relativePath}`,
+        picked: false
+    }));
+
+    // Show quick pick with multi-select
+    const selectedItems = await vscode.window.showQuickPick(quickPickItems, {
+        placeHolder: 'Select files to unshelve (use Space to select multiple)',
+        canPickMany: true
+    });
+
+    if (!selectedItems || selectedItems.length === 0) {
+        return;
+    }
+
+    // Get selected file paths
+    const selectedPaths = selectedItems.map(item => item.description!);
+    
+    let restoredCount = 0;
+    let errorCount = 0;
+
+    const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
+    if (!fs.existsSync(entryDir)) {
+        vscode.window.showErrorMessage('Shelf entry not found');
+        return;
+    }
+
+    const workspaceFolder = vscode.workspace.workspaceFolders![0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder found');
+        return;
+    }
+
+    const workspacePath = workspaceFolder.uri.fsPath;
+
+    // Restore each selected file
+    for (const relativePath of selectedPaths) {
+        try {
+            const shelfFilePath = path.join(entryDir, relativePath);
+            if (fs.existsSync(shelfFilePath)) {
+                const content = fs.readFileSync(shelfFilePath);
+                const targetPath = path.join(workspacePath, relativePath);
+                
+                // Ensure directory exists
+                const targetDir = path.dirname(targetPath);
+                if (!fs.existsSync(targetDir)) {
+                    fs.mkdirSync(targetDir, { recursive: true });
+                }
+
+                fs.writeFileSync(targetPath, content);
+                restoredCount++;
+            } else {
+                errorCount++;
+                console.error(`Shelf file not found: ${shelfFilePath}`);
+            }
+        } catch (error) {
+            errorCount++;
+            console.error(`Failed to restore ${relativePath}:`, error);
+        }
+    }
+
+    if (restoredCount > 0) {
+        vscode.window.showInformationMessage(
+            `Unshelved ${restoredCount} file(s)${errorCount > 0 ? ` (${errorCount} error(s))` : ''}`
+        );
     } else {
         vscode.window.showErrorMessage('Failed to unshelve files');
     }

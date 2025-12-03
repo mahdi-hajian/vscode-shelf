@@ -62,8 +62,13 @@
         "icon": "$(file-code)"
       },
       {
-        "command": "shelf.unshelve",
-        "title": "Unshelve",
+        "command": "shelf.unshelveAll",
+        "title": "Unshelve All",
+        "category": "Shelf"
+      },
+      {
+        "command": "shelf.unshelveSelection",
+        "title": "Unshelve Selection",
         "category": "Shelf"
       },
       {
@@ -128,18 +133,23 @@
       ],
       "view/item/context": [
         {
-          "command": "shelf.unshelve",
-          "when": "view == shelfView && viewItem == shelfItem",
+          "command": "shelf.unshelveAll",
+          "when": "view == shelfView && viewItem == shelfItemEntry",
+          "group": "inline"
+        },
+        {
+          "command": "shelf.unshelveSelection",
+          "when": "view == shelfView && viewItem == shelfItemEntry",
           "group": "inline"
         },
         {
           "command": "shelf.viewDiff",
-          "when": "view == shelfView && viewItem == shelfItem",
+          "when": "view == shelfView && (viewItem == shelfItemEntry || viewItem == shelfItemFile)",
           "group": "inline"
         },
         {
           "command": "shelf.delete",
-          "when": "view == shelfView && viewItem == shelfItem",
+          "when": "view == shelfView && (viewItem == shelfItemEntry || viewItem == shelfItemFile)",
           "group": "inline"
         }
       ]

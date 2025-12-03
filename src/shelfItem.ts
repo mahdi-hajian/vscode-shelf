@@ -20,7 +20,7 @@ export class ShelfItem extends vscode.TreeItem {
             filePath ? vscode.TreeItemCollapsibleState.None : vscode.TreeItemCollapsibleState.Collapsed
         );
 
-        this.contextValue = 'shelfItem';
+        this.contextValue = filePath ? 'shelfItemFile' : 'shelfItemEntry';
         this.tooltip = filePath 
             ? `${entry.name} - ${filePath}`
             : `${entry.name} (${Object.keys(entry.files).length} file(s))`;

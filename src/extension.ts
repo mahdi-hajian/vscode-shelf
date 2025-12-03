@@ -4,7 +4,8 @@ import { ShelfItem } from './shelfItem';
 import { 
     shelveChanges, 
     shelveSelectedFiles, 
-    unshelve, 
+    unshelveAll, 
+    unshelveSelection,
     deleteShelfItem, 
     clearAll,
     setShelfProvider as setShelfProviderForOperations
@@ -37,8 +38,12 @@ export function activate(context: vscode.ExtensionContext): void {
         await shelveSelectedFiles(context);
     });
 
-    const unshelveCommand = vscode.commands.registerCommand('shelf.unshelve', async (item: ShelfItem) => {
-        await unshelve(context, item);
+    const unshelveAllCommand = vscode.commands.registerCommand('shelf.unshelveAll', async (item: ShelfItem) => {
+        await unshelveAll(context, item);
+    });
+
+    const unshelveSelectionCommand = vscode.commands.registerCommand('shelf.unshelveSelection', async (item: ShelfItem) => {
+        await unshelveSelection(context, item);
     });
 
     const deleteCommand = vscode.commands.registerCommand('shelf.delete', async (item: ShelfItem) => {
@@ -60,7 +65,8 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         shelveChangesCommand,
         shelveSelectedFilesCommand,
-        unshelveCommand,
+        unshelveAllCommand,
+        unshelveSelectionCommand,
         deleteCommand,
         clearAllCommand,
         viewDiffCommand,
