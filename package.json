@@ -1,0 +1,139 @@
+{
+  "name": "vscode-shelf",
+  "displayName": "Shelf",
+  "description": "Temporarily save changes without committing - like WebStorm's Shelf",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "shelf.shelveChanges",
+        "title": "Shelve Changes",
+        "category": "Shelf",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "shelf.shelveSelectedFiles",
+        "title": "Shelve Selected Files",
+        "category": "Shelf",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "shelf.unshelve",
+        "title": "Unshelve",
+        "category": "Shelf"
+      },
+      {
+        "command": "shelf.delete",
+        "title": "Delete",
+        "category": "Shelf"
+      },
+      {
+        "command": "shelf.clearAll",
+        "title": "Clear All",
+        "category": "Shelf"
+      },
+      {
+        "command": "shelf.viewDiff",
+        "title": "View Diff",
+        "category": "Shelf"
+      },
+      {
+        "command": "shelf.refresh",
+        "title": "Refresh",
+        "category": "Shelf",
+        "icon": "$(refresh)"
+      }
+    ],
+      "views": {
+      "explorer": [
+        {
+          "id": "shelfView",
+          "name": "Shelf",
+          "when": "true"
+        }
+      ]
+    },
+    "menus": {
+      "scm/title": [
+        {
+          "command": "shelf.shelveChanges",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "shelf.shelveSelectedFiles",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "shelf.refresh",
+          "when": "view == shelfView",
+          "group": "navigation"
+        },
+        {
+          "command": "shelf.clearAll",
+          "when": "view == shelfView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "shelf.unshelve",
+          "when": "view == shelfView && viewItem == shelfItem",
+          "group": "inline"
+        },
+        {
+          "command": "shelf.viewDiff",
+          "when": "view == shelfView && viewItem == shelfItem",
+          "group": "inline"
+        },
+        {
+          "command": "shelf.delete",
+          "when": "view == shelfView && viewItem == shelfItem",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Shelf",
+      "properties": {
+        "shelf.autoSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically save changes to shelf when switching branches"
+        },
+        "shelf.maxItems": {
+          "type": "number",
+          "default": 50,
+          "description": "Maximum number of items to keep in shelf"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  }
+}
+
