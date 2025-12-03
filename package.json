@@ -102,13 +102,6 @@
           "group": "navigation"
         }
       ],
-      "scm/resourceState/context": [
-        {
-          "command": "shelf.shelveSelectedFiles",
-          "when": "scmProvider == git",
-          "group": "navigation"
-        }
-      ],
       "view/title": [
         {
           "command": "shelf.refresh",

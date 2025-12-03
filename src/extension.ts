@@ -23,8 +23,8 @@ export function activate(context: vscode.ExtensionContext) {
         await shelveChanges(context);
     });
 
-    const shelveSelectedFilesCommand = vscode.commands.registerCommand('shelf.shelveSelectedFiles', async (uri?: vscode.Uri | vscode.SourceControlResourceState) => {
-        await shelveSelectedFiles(context, uri);
+    const shelveSelectedFilesCommand = vscode.commands.registerCommand('shelf.shelveSelectedFiles', async () => {
+        await shelveSelectedFiles(context);
     });
 
     const unshelveCommand = vscode.commands.registerCommand('shelf.unshelve', async (item: ShelfItem) => {
@@ -160,7 +160,7 @@ async function shelveChanges(context: vscode.ExtensionContext) {
     }
 }
 
-async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscode.Uri | vscode.SourceControlResourceState) {
+async function shelveSelectedFiles(context: vscode.ExtensionContext) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
         vscode.window.showErrorMessage('No workspace folder found');
@@ -185,41 +185,144 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
         return;
     }
 
-    let filesToShelve: vscode.Uri[] = [];
-    let changes: vscode.SourceControlResourceState[] = [];
+    // Get git status first to have file paths
+    const repoPath = repository.rootUri.fsPath;
+    const gitStatusMap = new Map<string, string>();
+    const gitFilePaths: string[] = [];
     
-    if (uri) {
-        // Check if uri is a SourceControlResourceState
-        if ('resourceUri' in uri && uri.resourceUri) {
-            // It's a SourceControlResourceState from context menu
-            changes = [uri as vscode.SourceControlResourceState];
-        } else if (uri instanceof vscode.Uri) {
-            // It's a Uri
-            filesToShelve = [uri];
-            changes = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
-                change.resourceUri && change.resourceUri.fsPath === uri.fsPath
-            );
+    try {
+        const { stdout } = await execAsync('git status --porcelain', { cwd: repoPath });
+        const lines = stdout.trim().split('\n').filter(line => line.trim());
+        for (const line of lines) {
+            const status = line.substring(0, 2);
+            const filePath = line.substring(2).trim();
+            gitStatusMap.set(filePath, status);
+            gitFilePaths.push(filePath);
         }
-    } else {
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-            filesToShelve = [activeEditor.document.uri];
-            changes = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
-                change.resourceUri && change.resourceUri.fsPath === activeEditor.document.uri.fsPath
-            );
-        } else {
-            vscode.window.showInformationMessage('No file selected');
-            return;
-        }
+    } catch (error) {
+        console.error('Error getting git status:', error);
     }
 
-    if (changes.length === 0) {
-        vscode.window.showInformationMessage('No changes to shelve for selected files');
+    // Get all changed files and filter those with resourceUri
+    const allChanges = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
+        change.resourceUri !== undefined
+    );
+    
+    if (allChanges.length === 0 && gitFilePaths.length === 0) {
+        vscode.window.showInformationMessage('No changes to shelve');
         return;
     }
 
+    // Create a map of file paths to changes for quick lookup
+    const changeMap = new Map<string, vscode.SourceControlResourceState>();
+    for (const change of allChanges) {
+        if (change.resourceUri) {
+            const relativePath = path.relative(repoPath, change.resourceUri.fsPath).replace(/\\/g, '/');
+            changeMap.set(relativePath, change);
+        }
+    }
+
+    // Create quick pick items from changed files
+    interface QuickPickItemWithChange extends vscode.QuickPickItem {
+        change: vscode.SourceControlResourceState | null;
+        filePath: string;
+    }
+    
+    const quickPickItems: QuickPickItemWithChange[] = [];
+    
+    // Process files from git status
+    for (const gitFilePath of gitFilePaths) {
+        const normalizedGitPath = gitFilePath.replace(/\\/g, '/');
+        const change = changeMap.get(normalizedGitPath);
+        
+        // If we have a change with resourceUri, use it
+        if (change && change.resourceUri) {
+            const filePath = change.resourceUri.fsPath;
+            const fileName = path.basename(filePath);
+            let relativePath = path.relative(repoPath, filePath).replace(/\\/g, '/');
+            
+            // Handle edge cases
+            if (!relativePath || relativePath === '.' || relativePath === fileName) {
+                relativePath = normalizedGitPath || fileName;
+            }
+            
+            // Get status
+            const gitStatus = gitStatusMap.get(gitFilePath);
+            let statusText = 'Changed';
+            if (gitStatus) {
+                if (gitStatus[1] === 'M' || gitStatus[0] === 'M') {
+                    statusText = 'Modified';
+                } else if (gitStatus[1] === 'A' || gitStatus[0] === 'A') {
+                    statusText = 'Added';
+                } else if (gitStatus[1] === 'D' || gitStatus[0] === 'D') {
+                    statusText = 'Deleted';
+                } else if (gitStatus === '??') {
+                    statusText = 'Untracked';
+                } else if (gitStatus[1] === 'R' || gitStatus[0] === 'R') {
+                    statusText = 'Renamed';
+                }
+            }
+            
+            quickPickItems.push({
+                label: fileName,
+                description: relativePath,
+                detail: `${statusText} - ${relativePath}`,
+                change: change,
+                filePath: filePath,
+                picked: false
+            });
+        } else {
+            // Fallback: use git path directly
+            const fileName = path.basename(normalizedGitPath);
+            const gitStatus = gitStatusMap.get(gitFilePath);
+            let statusText = 'Changed';
+            if (gitStatus) {
+                if (gitStatus[1] === 'M' || gitStatus[0] === 'M') {
+                    statusText = 'Modified';
+                } else if (gitStatus[1] === 'A' || gitStatus[0] === 'A') {
+                    statusText = 'Added';
+                } else if (gitStatus[1] === 'D' || gitStatus[0] === 'D') {
+                    statusText = 'Deleted';
+                } else if (gitStatus === '??') {
+                    statusText = 'Untracked';
+                } else if (gitStatus[1] === 'R' || gitStatus[0] === 'R') {
+                    statusText = 'Renamed';
+                }
+            }
+            
+            const fullPath = path.isAbsolute(normalizedGitPath) ? normalizedGitPath : path.join(repoPath, normalizedGitPath);
+            quickPickItems.push({
+                label: fileName,
+                description: normalizedGitPath,
+                detail: `${statusText} - ${normalizedGitPath}`,
+                change: null,
+                filePath: fullPath,
+                picked: false
+            });
+        }
+    }
+
+    if (quickPickItems.length === 0) {
+        vscode.window.showInformationMessage('No changes to shelve');
+        return;
+    }
+
+    // Show quick pick with multi-select
+    const selectedItems = await vscode.window.showQuickPick(quickPickItems, {
+        placeHolder: 'Select files to shelve (use Space to select multiple)',
+        canPickMany: true
+    });
+
+    if (!selectedItems || selectedItems.length === 0) {
+        return;
+    }
+
+    // Separate items with change and without change
+    const itemsWithChange = selectedItems.filter(item => item.change !== null);
+    const itemsWithoutChange = selectedItems.filter(item => item.change === null);
+
     const name = await vscode.window.showInputBox({
-        prompt: 'Enter a name for this shelf',
+        prompt: `Enter a name for this shelf (${selectedItems.length} file(s))`,
         placeHolder: 'e.g., WIP feature X'
     });
 
@@ -228,9 +331,38 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
     }
 
     try {
-        const shelfEntry = await createShelfEntry(context, name, changes, repository);
-        shelfProvider.addShelfEntry(shelfEntry);
-        vscode.window.showInformationMessage(`Changes shelved: ${name}`);
+        // If all items have change, use createShelfEntry
+        if (itemsWithoutChange.length === 0 && itemsWithChange.length > 0) {
+            const selectedChanges = itemsWithChange.map(item => item.change!);
+            const shelfEntry = await createShelfEntry(context, name, selectedChanges, repository);
+            shelfProvider.addShelfEntry(shelfEntry);
+            vscode.window.showInformationMessage(`Changes shelved: ${name} (${selectedItems.length} file(s))`);
+        } else {
+            // Use git status approach for all files
+            const selectedFileStatuses = selectedItems
+                .filter(item => item.description) // Filter out items without description
+                .map(item => {
+                    const gitPath = item.description!;
+                    const gitStatus = gitStatusMap.get(gitPath) || '  ';
+                    const isDeleted = gitStatus[0] === 'D' || gitStatus[1] === 'D';
+                    const isUntracked = gitStatus === '??';
+                    return {
+                        path: gitPath,
+                        status: gitStatus,
+                        isDeleted: isDeleted,
+                        isUntracked: isUntracked
+                    };
+                });
+            
+            if (selectedFileStatuses.length === 0) {
+                vscode.window.showErrorMessage('No valid files selected');
+                return;
+            }
+            
+            const shelfEntry = await createShelfEntryFromGitFiles(context, name, selectedFileStatuses, repoPath);
+            shelfProvider.addShelfEntry(shelfEntry);
+            vscode.window.showInformationMessage(`Changes shelved: ${name} (${selectedFileStatuses.length} file(s))`);
+        }
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(`Failed to shelve changes: ${errorMessage}`);
