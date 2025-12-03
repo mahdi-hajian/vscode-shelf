@@ -1,8 +1,12 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { ShelfProvider } from './shelfProvider';
 import { ShelfItem, ShelfEntry } from './shelfItem';
+
+const execAsync = promisify(exec);
 
 let shelfProvider: ShelfProvider;
 
@@ -56,6 +60,66 @@ export function activate(context: vscode.ExtensionContext) {
 
 export function deactivate() {}
 
+async function getGitRepositoryPath(): Promise<string | null> {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        return null;
+    }
+
+    const gitExtension = vscode.extensions.getExtension('vscode.git');
+    if (!gitExtension) {
+        return null;
+    }
+
+    const git = gitExtension.exports.getAPI(1);
+    if (!git || !git.repositories || git.repositories.length === 0) {
+        return null;
+    }
+
+    const repository = git.repositories[0];
+    return repository.rootUri.fsPath;
+}
+
+interface GitFileStatus {
+    path: string;
+    status: string; // e.g., "M ", " D", "??", "A ", etc.
+    isDeleted: boolean;
+    isUntracked: boolean;
+}
+
+async function getChangedFilesFromGit(repoPath: string): Promise<GitFileStatus[]> {
+    try {
+        // Get all changed files (modified, added, deleted, untracked)
+        const { stdout } = await execAsync('git status --porcelain', { cwd: repoPath });
+        const lines = stdout.trim().split('\n').filter(line => line.trim());
+        
+        const files: GitFileStatus[] = [];
+        for (const line of lines) {
+            // git status --porcelain format: XY filename
+            // X = index status, Y = working tree status
+            const status = line.substring(0, 2);
+            const filePath = line.substring(3).trim();
+            
+            // Include modified (M), added (A), deleted (D), renamed (R), copied (C), untracked (?)
+            if (status[1] !== ' ' || status[0] !== ' ') {
+                const isDeleted = status[0] === 'D' || status[1] === 'D';
+                const isUntracked = status === '??';
+                files.push({
+                    path: filePath,
+                    status: status,
+                    isDeleted: isDeleted,
+                    isUntracked: isUntracked
+                });
+            }
+        }
+        
+        return files;
+    } catch (error) {
+        console.error('Error getting git status:', error);
+        return [];
+    }
+}
+
 async function shelveChanges(context: vscode.ExtensionContext) {
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -63,26 +127,15 @@ async function shelveChanges(context: vscode.ExtensionContext) {
         return;
     }
 
-    const gitExtension = vscode.extensions.getExtension('vscode.git');
-    if (!gitExtension) {
-        vscode.window.showErrorMessage('Git extension is required');
+    const repoPath = await getGitRepositoryPath();
+    if (!repoPath) {
+        vscode.window.showErrorMessage('No git repository found. Please open a workspace with a git repository.');
         return;
     }
 
-    const git = gitExtension.exports.getAPI(1);
-    if (!git) {
-        vscode.window.showErrorMessage('Git API not available');
-        return;
-    }
-
-    const repository = git.repositories[0];
-    if (!repository) {
-        vscode.window.showErrorMessage('No git repository found');
-        return;
-    }
-
-    const changes = repository.state.workingTreeChanges;
-    if (changes.length === 0) {
+    // Get changed files using git status
+    const changedFiles = await getChangedFilesFromGit(repoPath);
+    if (changedFiles.length === 0) {
         vscode.window.showInformationMessage('No changes to shelve');
         return;
     }
@@ -97,7 +150,7 @@ async function shelveChanges(context: vscode.ExtensionContext) {
     }
 
     try {
-        const shelfEntry = await createShelfEntry(context, name, changes, repository);
+        const shelfEntry = await createShelfEntryFromGitFiles(context, name, changedFiles, repoPath);
         shelfProvider.addShelfEntry(shelfEntry);
         vscode.window.showInformationMessage(`Changes shelved: ${name}`);
     } catch (error) {
@@ -185,6 +238,119 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
     }
 }
 
+async function createShelfEntryFromGitFiles(
+    context: vscode.ExtensionContext,
+    name: string,
+    fileStatuses: GitFileStatus[],
+    repoPath: string
+): Promise<ShelfEntry> {
+    const shelfDir = path.join(context.globalStoragePath, 'shelf');
+    if (!fs.existsSync(shelfDir)) {
+        fs.mkdirSync(shelfDir, { recursive: true });
+    }
+
+    const timestamp = Date.now();
+    const entryId = `${timestamp}-${name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const entryDir = path.join(shelfDir, entryId);
+    fs.mkdirSync(entryDir, { recursive: true });
+
+    const files: { [key: string]: string } = {};
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        throw new Error('No workspace folder found');
+    }
+    const workspacePath = workspaceFolder.uri.fsPath;
+    
+    console.log(`Creating shelf entry for ${fileStatuses.length} file(s) in workspace: ${workspacePath}`);
+
+    for (const fileStatus of fileStatuses) {
+        try {
+            const filePath = fileStatus.path;
+            const fullPath = path.isAbsolute(filePath) ? filePath : path.join(repoPath, filePath);
+            const fileUri = vscode.Uri.file(fullPath);
+            
+            // Get relative path from workspace
+            let relativePath = path.relative(workspacePath, fullPath);
+            
+            // Normalize path separators
+            relativePath = relativePath.replace(/\\/g, '/');
+            
+            // Skip if outside workspace
+            if (relativePath.startsWith('..')) {
+                console.warn(`Skipping file outside workspace: ${fullPath}`);
+                continue;
+            }
+
+            // Ensure relativePath is not empty
+            if (!relativePath || relativePath.trim() === '') {
+                relativePath = path.basename(fullPath);
+            }
+
+            const fileDir = path.join(entryDir, path.dirname(relativePath));
+            if (!fs.existsSync(fileDir)) {
+                fs.mkdirSync(fileDir, { recursive: true });
+            }
+            
+            const shelfFilePath = path.join(entryDir, relativePath);
+            let content: Uint8Array;
+
+            // Check if file exists in filesystem
+            if (fs.existsSync(fullPath)) {
+                // File exists - read current content from filesystem
+                try {
+                    content = await vscode.workspace.fs.readFile(fileUri);
+                } catch (readError) {
+                    // Fallback to fs.readFileSync
+                    content = fs.readFileSync(fullPath);
+                }
+            } else if (fileStatus.isDeleted) {
+                // File is deleted - try to read from git HEAD
+                try {
+                    const { stdout } = await execAsync(`git show HEAD:${filePath}`, { cwd: repoPath });
+                    content = Buffer.from(stdout, 'utf8');
+                } catch (gitError) {
+                    // If git show fails, save as empty
+                    content = new Uint8Array(0);
+                    console.warn(`Could not read deleted file ${fullPath} from git, saving as empty`);
+                }
+            } else {
+                // File doesn't exist and is not deleted (untracked that was removed?)
+                content = new Uint8Array(0);
+                console.warn(`File ${fullPath} not found, saving as empty`);
+            }
+
+            // Write the content to shelf
+            fs.writeFileSync(shelfFilePath, content);
+            files[relativePath] = fullPath;
+            console.log(`Successfully shelved: ${relativePath} (${fileStatus.status})`);
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error(`Failed to shelve file ${fileStatus.path}: ${errorMsg}`);
+            // Continue with other files
+        }
+    }
+
+    if (Object.keys(files).length === 0) {
+        const errorDetails = fileStatuses.length > 0 
+            ? `Attempted to shelve ${fileStatuses.length} file(s) but all failed. Check the console for details.`
+            : 'No changes were found to shelve.';
+        throw new Error(`No files were successfully shelved. ${errorDetails}`);
+    }
+
+    const entry: ShelfEntry = {
+        id: entryId,
+        name: name,
+        timestamp: timestamp,
+        files: files,
+        workspacePath: workspacePath
+    };
+
+    const entryFile = path.join(entryDir, 'entry.json');
+    fs.writeFileSync(entryFile, JSON.stringify(entry, null, 2));
+
+    return entry;
+}
+
 async function createShelfEntry(
     context: vscode.ExtensionContext,
     name: string,
@@ -207,6 +373,8 @@ async function createShelfEntry(
         throw new Error('No workspace folder found');
     }
     const workspacePath = workspaceFolder.uri.fsPath;
+    
+    console.log(`Creating shelf entry for ${changes.length} change(s) in workspace: ${workspacePath}`);
 
     for (const change of changes) {
         if (!change.resourceUri) {
@@ -216,11 +384,25 @@ async function createShelfEntry(
 
         try {
             const fileUri = change.resourceUri;
-            const relativePath = path.relative(workspacePath, fileUri.fsPath);
+            let relativePath = path.relative(workspacePath, fileUri.fsPath);
+            
+            // Handle root-level files (relativePath might be empty or just filename)
+            if (!relativePath || relativePath === '.' || relativePath === path.basename(fileUri.fsPath)) {
+                relativePath = path.basename(fileUri.fsPath);
+            }
+            
+            // Normalize path separators for cross-platform compatibility
+            relativePath = relativePath.replace(/\\/g, '/');
             
             // Skip if relative path is invalid (outside workspace)
             if (relativePath.startsWith('..')) {
                 console.warn(`Skipping file outside workspace: ${fileUri.fsPath}`);
+                continue;
+            }
+
+            // Ensure relativePath is not empty
+            if (!relativePath || relativePath.trim() === '') {
+                console.warn(`Skipping file with empty relative path: ${fileUri.fsPath}`);
                 continue;
             }
 
@@ -259,15 +441,19 @@ async function createShelfEntry(
             // Write the content to shelf
             fs.writeFileSync(filePath, content);
             files[relativePath] = fileUri.fsPath;
+            console.log(`Successfully shelved: ${relativePath}`);
         } catch (error) {
             const errorMsg = error instanceof Error ? error.message : String(error);
-            console.error(`Failed to shelve file ${change.resourceUri.fsPath}: ${errorMsg}`);
+            console.error(`Failed to shelve file ${change.resourceUri?.fsPath}: ${errorMsg}`);
             // Continue with other files
         }
     }
 
     if (Object.keys(files).length === 0) {
-        throw new Error('No files were successfully shelved. Make sure you have uncommitted changes.');
+        const errorDetails = changes.length > 0 
+            ? `Attempted to shelve ${changes.length} file(s) but all failed. Check the console for details.`
+            : 'No changes were found to shelve.';
+        throw new Error(`No files were successfully shelved. ${errorDetails}`);
     }
 
     const entry: ShelfEntry = {
@@ -335,15 +521,8 @@ async function unshelve(context: vscode.ExtensionContext, item: ShelfItem) {
         vscode.window.showInformationMessage(
             `Unshelved ${restoredCount} file(s)${errorCount > 0 ? ` (${errorCount} error(s))` : ''}`
         );
-        // Refresh source control to show changes (without switching tabs)
-        const gitExtension = vscode.extensions.getExtension('vscode.git');
-        if (gitExtension) {
-            const git = gitExtension.exports.getAPI(1);
-            if (git && git.repositories.length > 0) {
-                // Refresh repository state without switching focus
-                git.repositories[0].state.load();
-            }
-        }
+        // Git repository state will automatically refresh when files change
+        // No need to manually call load() as it doesn't exist in the API
     } else {
         vscode.window.showErrorMessage('Failed to unshelve files');
     }
