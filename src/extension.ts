@@ -101,7 +101,9 @@ async function shelveChanges(context: vscode.ExtensionContext) {
         shelfProvider.addShelfEntry(shelfEntry);
         vscode.window.showInformationMessage(`Changes shelved: ${name}`);
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to shelve changes: ${error}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to shelve changes: ${errorMessage}`);
+        console.error('Shelve error:', error);
     }
 }
 
@@ -145,7 +147,7 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
     }
 
     const changes = repository.state.workingTreeChanges.filter((change: vscode.SourceControlResourceState) => 
-        filesToShelve.some(file => file.fsPath === change.resourceUri.fsPath)
+        change.resourceUri && filesToShelve.some(file => file.fsPath === change.resourceUri!.fsPath)
     );
 
     if (changes.length === 0) {
@@ -167,7 +169,9 @@ async function shelveSelectedFiles(context: vscode.ExtensionContext, uri?: vscod
         shelfProvider.addShelfEntry(shelfEntry);
         vscode.window.showInformationMessage(`Changes shelved: ${name}`);
     } catch (error) {
-        vscode.window.showErrorMessage(`Failed to shelve changes: ${error}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to shelve changes: ${errorMessage}`);
+        console.error('Shelve error:', error);
     }
 }
 
@@ -187,19 +191,36 @@ async function createShelfEntry(
     fs.mkdirSync(entryDir, { recursive: true });
 
     const files: { [key: string]: string } = {};
-    const workspaceFolder = vscode.workspace.workspaceFolders![0];
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        throw new Error('No workspace folder found');
+    }
     const workspacePath = workspaceFolder.uri.fsPath;
 
     for (const change of changes) {
-        const relativePath = path.relative(workspacePath, change.resourceUri.fsPath);
-        const fileDir = path.join(entryDir, path.dirname(relativePath));
-        fs.mkdirSync(fileDir, { recursive: true });
-        
-        const filePath = path.join(entryDir, relativePath);
-        const content = await vscode.workspace.fs.readFile(change.resourceUri);
-        fs.writeFileSync(filePath, content);
-        
-        files[relativePath] = change.resourceUri.fsPath;
+        if (!change.resourceUri) {
+            console.warn('Skipping change with undefined resourceUri');
+            continue;
+        }
+
+        try {
+            const relativePath = path.relative(workspacePath, change.resourceUri.fsPath);
+            const fileDir = path.join(entryDir, path.dirname(relativePath));
+            fs.mkdirSync(fileDir, { recursive: true });
+            
+            const filePath = path.join(entryDir, relativePath);
+            const content = await vscode.workspace.fs.readFile(change.resourceUri);
+            fs.writeFileSync(filePath, content);
+            
+            files[relativePath] = change.resourceUri.fsPath;
+        } catch (error) {
+            console.error(`Failed to shelve file ${change.resourceUri.fsPath}:`, error);
+            // Continue with other files
+        }
+    }
+
+    if (Object.keys(files).length === 0) {
+        throw new Error('No files were successfully shelved');
     }
 
     const entry: ShelfEntry = {
@@ -314,7 +335,11 @@ async function viewDiff(item: ShelfItem) {
     const entry = item.entry;
     const context = shelfProvider.getContext();
     const entryDir = path.join(context.globalStoragePath, 'shelf', entry.id);
-    const workspaceFolder = vscode.workspace.workspaceFolders![0];
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+        vscode.window.showErrorMessage('No workspace folder found');
+        return;
+    }
     const workspacePath = workspaceFolder.uri.fsPath;
 
     const filePath = item.filePath;
