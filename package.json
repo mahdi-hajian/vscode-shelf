@@ -51,13 +51,13 @@
         "command": "shelf.shelveChanges",
         "title": "Shelve Changes",
         "category": "Shelf",
-        "icon": "$(archive)"
+        "icon": "$(save-all)"
       },
       {
         "command": "shelf.shelveSelectedFiles",
         "title": "Shelve Selected Files",
         "category": "Shelf",
-        "icon": "$(archive)"
+        "icon": "$(file-code)"
       },
       {
         "command": "shelf.unshelve",
@@ -112,6 +112,16 @@
       "view/title": [
         {
           "command": "shelf.refresh",
+          "when": "view == shelfView",
+          "group": "navigation"
+        },
+        {
+          "command": "shelf.shelveChanges",
+          "when": "view == shelfView",
+          "group": "navigation"
+        },
+        {
+          "command": "shelf.shelveSelectedFiles",
           "when": "view == shelfView",
           "group": "navigation"
         },
