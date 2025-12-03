@@ -11,6 +11,29 @@
     "Other",
     "SCM Providers"
   ],
+  "keywords": [
+    "shelf",
+    "shelve",
+    "stash",
+    "temporary",
+    "save",
+    "uncommitted",
+    "changes",
+    "git",
+    "scm",
+    "source control",
+    "webstorm",
+    "patch",
+    "diff",
+    "working tree",
+    "changeset",
+    "temporary storage",
+    "uncommitted changes",
+    "save changes",
+    "temporary save",
+    "git stash",
+    "version control"
+  ],
   "activationEvents": [
     "onStartupFinished"
   ],
