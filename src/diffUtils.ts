@@ -6,7 +6,7 @@ import { ShelfProvider } from './shelfProvider';
 
 let shelfProvider: ShelfProvider;
 
-export function setShelfProvider(provider: ShelfProvider) {
+export function setShelfProvider(provider: ShelfProvider): void {
     shelfProvider = provider;
 }
 

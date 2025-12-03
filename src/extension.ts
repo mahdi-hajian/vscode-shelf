@@ -16,7 +16,7 @@ import {
 
 let shelfProvider: ShelfProvider;
 
-export function activate(context: vscode.ExtensionContext) {
+export function activate(context: vscode.ExtensionContext): void {
     shelfProvider = new ShelfProvider(context);
     
     // Set shelf provider for operations and diff utilities
@@ -68,4 +68,4 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
-export function deactivate() {}
+export function deactivate(): void {}

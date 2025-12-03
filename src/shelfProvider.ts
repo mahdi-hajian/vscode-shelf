@@ -15,20 +15,20 @@ export class ShelfProvider implements vscode.TreeDataProvider<ShelfItem> {
         this.loadShelfEntries();
     }
 
-    getContext(): vscode.ExtensionContext {
+    public getContext(): vscode.ExtensionContext {
         return this.context;
     }
 
-    refresh(): void {
+    public refresh(): void {
         this.loadShelfEntries();
         this._onDidChangeTreeData.fire();
     }
 
-    getTreeItem(element: ShelfItem): vscode.TreeItem {
+    public getTreeItem(element: ShelfItem): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: ShelfItem): Thenable<ShelfItem[]> {
+    public getChildren(element?: ShelfItem): Thenable<ShelfItem[]> {
         if (!element) {
             // Root level - return all shelf entries
             return Promise.resolve(
@@ -51,19 +51,19 @@ export class ShelfProvider implements vscode.TreeDataProvider<ShelfItem> {
         }
     }
 
-    addShelfEntry(entry: ShelfEntry): void {
+    public addShelfEntry(entry: ShelfEntry): void {
         this.entries.push(entry);
         this.saveShelfEntries();
         this._onDidChangeTreeData.fire();
     }
 
-    removeShelfEntry(entryId: string): void {
+    public removeShelfEntry(entryId: string): void {
         this.entries = this.entries.filter(e => e.id !== entryId);
         this.saveShelfEntries();
         this._onDidChangeTreeData.fire();
     }
 
-    clearAll(): void {
+    public clearAll(): void {
         this.entries = [];
         this.saveShelfEntries();
         this._onDidChangeTreeData.fire();

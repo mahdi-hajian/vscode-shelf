@@ -15,7 +15,7 @@ import { createShelfEntryFromGitFiles, createShelfEntry } from './shelfStorage';
 
 let shelfProvider: ShelfProvider;
 
-export function setShelfProvider(provider: ShelfProvider) {
+export function setShelfProvider(provider: ShelfProvider): void {
     shelfProvider = provider;
 }
 
