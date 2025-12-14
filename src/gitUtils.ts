@@ -136,3 +136,16 @@ export function getGitRepository(): { git: any; repository: any } | null {
     return { git, repository };
 }
 
+/**
+ * Gets the current git branch name
+ */
+export async function getCurrentBranch(repoPath: string): Promise<string | null> {
+    try {
+        const { stdout } = await execAsync('git rev-parse --abbrev-ref HEAD', { cwd: repoPath });
+        return stdout.trim();
+    } catch (error) {
+        console.error('Error getting current branch:', error);
+        return null;
+    }
+}
+

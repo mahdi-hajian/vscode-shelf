@@ -2,7 +2,7 @@
   "name": "vscode-shelf",
   "displayName": "Shelf - Save Changes Temporarily",
   "description": "Shelf extension for VS Code - Temporarily save and manage uncommitted changes without committing, similar to WebStorm's Shelf feature",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "publisher": "mahdihajian",
   "icon": "icon.png",
   "author": "mahdihajian",
@@ -60,7 +60,7 @@
       },
       {
         "command": "shelf.shelveSelectedFiles",
-        "title": "Shelve Selected Files",
+        "title": "Shelve Selections",
         "category": "Shelf",
         "icon": "$(file-code)"
       },
@@ -108,6 +108,11 @@
       "scm/title": [
         {
           "command": "shelf.shelveChanges",
+          "when": "scmProvider == git",
+          "group": "navigation"
+        },
+        {
+          "command": "shelf.shelveSelectedFiles",
           "when": "scmProvider == git",
           "group": "navigation"
         }

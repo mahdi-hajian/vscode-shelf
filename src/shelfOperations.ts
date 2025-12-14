@@ -9,6 +9,7 @@ import {
     getGitStatusMap, 
     getStatusText,
     getGitRepository,
+    getCurrentBranch,
     GitFileStatus 
 } from './gitUtils';
 import { createShelfEntryFromGitFiles, createShelfEntry } from './shelfStorage';
@@ -448,6 +449,36 @@ export async function clearAll(context: vscode.ExtensionContext): Promise<void> 
             shelfProvider.clearAll();
             vscode.window.showInformationMessage('All shelves cleared');
         }
+    }
+}
+
+/**
+ * Automatically shelves changes when switching branches (called internally)
+ */
+export async function autoShelveChanges(context: vscode.ExtensionContext, fromBranch: string, toBranch: string): Promise<void> {
+    const repoPath = await getGitRepositoryPath();
+    if (!repoPath) {
+        return;
+    }
+
+    // Get changed files using git status
+    const changedFiles = await getChangedFilesFromGit(repoPath);
+    if (changedFiles.length === 0) {
+        return; // No changes to shelve
+    }
+
+    // Create automatic shelf name
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const name = `Auto-saved from ${fromBranch} to ${toBranch} (${timestamp})`;
+
+    try {
+        const shelfEntry = await createShelfEntryFromGitFiles(context, name, changedFiles, repoPath);
+        shelfProvider.addShelfEntry(shelfEntry);
+        vscode.window.showInformationMessage(`Changes automatically shelved: ${name}`);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('Auto-shelve error:', error);
+        // Don't show error to user for auto-save, just log it
     }
 }
 
