@@ -44,3 +44,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Configuration Options
 - `shelf.maxItems`: Maximum number of items to keep in shelf (default: 50)
+
