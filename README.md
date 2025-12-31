@@ -50,6 +50,7 @@ A VS Code extension that provides a "Shelf" feature similar to WebStorm's Shelf,
    - A quick pick dialog will appear with all files in the shelf entry
    - Select the files you want to restore (use Space to select multiple)
    - Selected files will be restored to your workspace
+   - Tip: set `shelf.unshelve.forceOverride` to `true` if you want this command to overwrite files without showing conflict prompts
 
 ### Managing Shelves
 
@@ -65,6 +66,7 @@ Each workspace has its own separate shelf storage. When you switch between diffe
 
 - `shelf.autoSave`: Automatically save changes to shelf when switching branches (default: false)
 - `shelf.maxItems`: Maximum number of items to keep in shelf (default: 50)
+- `shelf.unshelve.forceOverride`: Always overwrite workspace files when unshelving (skip conflict prompts)
 
 ## Requirements
 

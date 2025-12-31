@@ -5,6 +5,16 @@ All notable changes to this extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2025-12-31
+
+### ✨ Added
+- **Override toggle exposure**: Documented `shelf.unshelve.forceOverride` usage and surfaced it in the Unshelve workflow tips
+
+### 🔧 Technical Changes
+- Unshelve commands now read the override flag in a single place before restoration, simplifying configuration handling
+
+---
+
 ## [0.2.4] - 2025-12-31
 
 ### ✨ Added
@@ -12,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New conflict dialog now offers _Apply Shelf Version_, _Keep Current_, or _Mark As Conflict_ options
   - Selecting _Mark As Conflict_ injects git-style markers only around the exact hunks that differ
 - **Smarter conflict summaries**: Unshelve toast now reports how many files were applied, skipped, already up-to-date, or marked as conflicts
+- **Legacy override option**: Added `shelf.unshelve.forceOverride` setting to skip conflict handling and always overwrite workspace files when unshelving
 
 ### 🔧 Technical Changes
 - Introduced the `diff` dependency to generate precise line-based conflict hunks

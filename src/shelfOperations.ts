@@ -285,7 +285,8 @@ async function restoreFilesFromShelf(
     entry: ShelfEntry,
     relativePaths: string[],
     workspacePath: string,
-    entryDir: string
+    entryDir: string,
+    forceOverride: boolean
 ): Promise<UnshelveSummary> {
     const summary: UnshelveSummary = {
         restored: 0,
@@ -298,7 +299,7 @@ async function restoreFilesFromShelf(
 
     for (const relativePath of relativePaths) {
         try {
-            const result = await restoreSingleFile(entry, relativePath, workspacePath, entryDir);
+            const result = await restoreSingleFile(entry, relativePath, workspacePath, entryDir, forceOverride);
             if (result.conflict) {
                 summary.conflicts++;
             }
@@ -332,7 +333,8 @@ async function restoreSingleFile(
     entry: ShelfEntry,
     relativePath: string,
     workspacePath: string,
-    entryDir: string
+    entryDir: string,
+    forceOverride: boolean
 ): Promise<RestoreFileResult> {
     const shelfFilePath = path.join(entryDir, relativePath);
     if (!fs.existsSync(shelfFilePath)) {
@@ -355,6 +357,11 @@ async function restoreSingleFile(
     const targetContent = fs.readFileSync(targetPath);
     if (Buffer.compare(shelfContent, targetContent) === 0) {
         return { status: 'identical', conflict: false };
+    }
+
+    if (forceOverride) {
+        fs.writeFileSync(targetPath, shelfContent);
+        return { status: 'restored', conflict: false };
     }
 
     const resolution = await showDiffForConflict(entry, relativePath, targetPath, shelfFilePath);
@@ -540,6 +547,8 @@ export async function unshelveAll(context: vscode.ExtensionContext, item: ShelfI
     }
 
     const workspacePath = workspaceFolder.uri.fsPath;
+    const config = vscode.workspace.getConfiguration('shelf');
+    const forceOverride = config.get<boolean>('unshelve.forceOverride', false);
 
     const relativePaths = (item.filePath ? [item.filePath] : Object.keys(entry.files)).filter(Boolean);
     if (relativePaths.length === 0) {
@@ -547,7 +556,7 @@ export async function unshelveAll(context: vscode.ExtensionContext, item: ShelfI
         return;
     }
 
-    const summary = await restoreFilesFromShelf(entry, relativePaths, workspacePath, entryDir);
+    const summary = await restoreFilesFromShelf(entry, relativePaths, workspacePath, entryDir, forceOverride);
     reportUnshelveSummary(summary);
 }
 
@@ -604,8 +613,10 @@ export async function unshelveSelection(context: vscode.ExtensionContext, item: 
     }
 
     const workspacePath = workspaceFolder.uri.fsPath;
+    const config = vscode.workspace.getConfiguration('shelf');
+    const forceOverride = config.get<boolean>('unshelve.forceOverride', false);
 
-    const summary = await restoreFilesFromShelf(entry, selectedPaths, workspacePath, entryDir);
+    const summary = await restoreFilesFromShelf(entry, selectedPaths, workspacePath, entryDir, forceOverride);
     reportUnshelveSummary(summary);
 }
 
