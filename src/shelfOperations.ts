@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import { ShelfItem } from './shelfItem';
+import * as os from 'os';
+import { diffLines } from 'diff';
+import { ShelfItem, ShelfEntry } from './shelfItem';
 import { ShelfProvider } from './shelfProvider';
 import { 
     getGitRepositoryPath, 
@@ -256,6 +258,269 @@ async function processSelectedFiles(
 }
 
 /**
+ * Result summary for unshelve operations
+ */
+interface UnshelveSummary {
+    restored: number;
+    skipped: number;
+    identical: number;
+    errors: number;
+    conflicts: number;
+    conflictMarkers: number;
+}
+
+type RestoreStatus = 'restored' | 'identical' | 'skipped' | 'conflictMarked';
+
+interface RestoreFileResult {
+    status: RestoreStatus;
+    conflict: boolean;
+}
+
+type ConflictResolutionChoice = 'apply' | 'skip' | 'mark';
+
+/**
+ * Restores a list of shelved files while surfacing diffs instead of overriding blindly.
+ */
+async function restoreFilesFromShelf(
+    entry: ShelfEntry,
+    relativePaths: string[],
+    workspacePath: string,
+    entryDir: string
+): Promise<UnshelveSummary> {
+    const summary: UnshelveSummary = {
+        restored: 0,
+        skipped: 0,
+        identical: 0,
+        errors: 0,
+        conflicts: 0,
+        conflictMarkers: 0
+    };
+
+    for (const relativePath of relativePaths) {
+        try {
+            const result = await restoreSingleFile(entry, relativePath, workspacePath, entryDir);
+            if (result.conflict) {
+                summary.conflicts++;
+            }
+            switch (result.status) {
+                case 'restored':
+                    summary.restored++;
+                    break;
+                case 'identical':
+                    summary.identical++;
+                    break;
+                case 'skipped':
+                    summary.skipped++;
+                    break;
+                case 'conflictMarked':
+                    summary.conflictMarkers++;
+                    break;
+            }
+        } catch (error) {
+            summary.errors++;
+            console.error(`Failed to restore ${relativePath}:`, error);
+        }
+    }
+
+    return summary;
+}
+
+/**
+ * Restores a single shelved file, showing a diff when a conflict is detected.
+ */
+async function restoreSingleFile(
+    entry: ShelfEntry,
+    relativePath: string,
+    workspacePath: string,
+    entryDir: string
+): Promise<RestoreFileResult> {
+    const shelfFilePath = path.join(entryDir, relativePath);
+    if (!fs.existsSync(shelfFilePath)) {
+        throw new Error(`Shelf file not found: ${relativePath}`);
+    }
+
+    const targetPath = path.join(workspacePath, relativePath);
+    const shelfContent = fs.readFileSync(shelfFilePath);
+
+    const targetDir = path.dirname(targetPath);
+    if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+    }
+
+    if (!fs.existsSync(targetPath)) {
+        fs.writeFileSync(targetPath, shelfContent);
+        return { status: 'restored', conflict: false };
+    }
+
+    const targetContent = fs.readFileSync(targetPath);
+    if (Buffer.compare(shelfContent, targetContent) === 0) {
+        return { status: 'identical', conflict: false };
+    }
+
+    const resolution = await showDiffForConflict(entry, relativePath, targetPath, shelfFilePath);
+    if (resolution === 'apply') {
+        fs.writeFileSync(targetPath, shelfContent);
+        return { status: 'restored', conflict: true };
+    }
+
+    if (resolution === 'mark') {
+        insertConflictMarkers(targetPath, entry.name, targetContent, shelfContent);
+        return { status: 'conflictMarked', conflict: true };
+    }
+
+    return { status: 'skipped', conflict: true };
+}
+
+/**
+ * Opens a diff for conflicting files and asks the user whether to apply the shelved version.
+ */
+async function showDiffForConflict(
+    entry: ShelfEntry,
+    relativePath: string,
+    targetPath: string,
+    shelfFilePath: string
+): Promise<ConflictResolutionChoice> {
+    const diffTitle = `${path.basename(relativePath)} (Current ↔ Shelf: ${entry.name})`;
+    try {
+        await vscode.commands.executeCommand(
+            'vscode.diff',
+            vscode.Uri.file(targetPath),
+            vscode.Uri.file(shelfFilePath),
+            diffTitle
+        );
+    } catch (error) {
+        console.error(`Failed to open diff for ${relativePath}:`, error);
+    }
+
+    const choice = await vscode.window.showWarningMessage(
+        `File "${relativePath}" already contains changes. Choose how to proceed:`,
+        { modal: true },
+        'Apply Shelf Version',
+        'Keep Current',
+        'Mark As Conflict'
+    );
+
+    switch (choice) {
+        case 'Apply Shelf Version':
+            return 'apply';
+        case 'Mark As Conflict':
+            return 'mark';
+        default:
+            return 'skip';
+    }
+}
+
+/**
+ * Writes git-style conflict markers to the target file.
+ */
+function insertConflictMarkers(
+    targetPath: string,
+    entryName: string,
+    currentContent: Buffer,
+    shelfContent: Buffer
+): void {
+    const currentText = currentContent.toString('utf8');
+    const shelfText = shelfContent.toString('utf8');
+    const lineEnding = detectLineEnding(currentText, shelfText) ?? os.EOL;
+
+    const diffs = diffLines(currentText, shelfText);
+    const builder: string[] = [];
+    let pendingRemoved = '';
+
+    const flushPending = (addedValue: string): void => {
+        builder.push(`<<<<<<< Current Workspace${lineEnding}`);
+        if (pendingRemoved) {
+            builder.push(pendingRemoved);
+            if (!pendingRemoved.endsWith('\n') && !pendingRemoved.endsWith('\r')) {
+                builder.push(lineEnding);
+            }
+        }
+        builder.push(`=======${lineEnding}`);
+        if (addedValue) {
+            builder.push(addedValue);
+            if (!addedValue.endsWith('\n') && !addedValue.endsWith('\r')) {
+                builder.push(lineEnding);
+            }
+        }
+        builder.push(`>>>>>>> Shelf: ${entryName}${lineEnding}`);
+        pendingRemoved = '';
+    };
+
+    for (const part of diffs) {
+        if (part.removed) {
+            pendingRemoved += part.value;
+            continue;
+        }
+
+        if (part.added) {
+            flushPending(part.value);
+            continue;
+        }
+
+        if (pendingRemoved) {
+            flushPending('');
+        }
+
+        builder.push(part.value);
+    }
+
+    if (pendingRemoved) {
+        flushPending('');
+    }
+
+    fs.writeFileSync(targetPath, builder.join(''), 'utf8');
+}
+
+function detectLineEnding(...texts: string[]): string | undefined {
+    for (const text of texts) {
+        const match = text.match(/\r\n|\n|\r/);
+        if (match) {
+            return match[0];
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Shows a consistent summary after restoring files from the shelf.
+ */
+function reportUnshelveSummary(summary: UnshelveSummary): void {
+    const parts: string[] = [];
+    if (summary.restored > 0) {
+        parts.push(`${summary.restored} applied`);
+    }
+    if (summary.identical > 0) {
+        parts.push(`${summary.identical} already up-to-date`);
+    }
+    if (summary.conflicts > 0) {
+        const label = summary.conflicts === 1 ? 'diff opened' : 'diffs opened';
+        parts.push(`${summary.conflicts} ${label}`);
+    }
+    if (summary.conflictMarkers > 0) {
+        const label = summary.conflictMarkers === 1 ? 'conflict marked' : 'conflicts marked';
+        parts.push(`${summary.conflictMarkers} ${label}`);
+    }
+    if (summary.skipped > 0) {
+        parts.push(`${summary.skipped} skipped`);
+    }
+    if (summary.errors > 0) {
+        parts.push(`${summary.errors} error${summary.errors > 1 ? 's' : ''}`);
+    }
+
+    const message = parts.length > 0
+        ? `Unshelve result: ${parts.join(', ')}`
+        : 'Unshelve result: No files were processed.';
+
+    if (summary.errors > 0) {
+        vscode.window.showErrorMessage(message);
+    } else if (summary.restored > 0) {
+        vscode.window.showInformationMessage(message);
+    } else {
+        vscode.window.showWarningMessage(message);
+    }
+}
+
+/**
  * Unshelves all files from a shelf entry
  */
 export async function unshelveAll(context: vscode.ExtensionContext, item: ShelfItem): Promise<void> {
@@ -276,45 +541,14 @@ export async function unshelveAll(context: vscode.ExtensionContext, item: ShelfI
 
     const workspacePath = workspaceFolder.uri.fsPath;
 
-    let restoredCount = 0;
-    let errorCount = 0;
-
-    // If filePath is set, only unshelve that specific file
-    const filesToRestore = item.filePath 
-        ? { [item.filePath]: entry.files[item.filePath] }
-        : entry.files;
-
-    for (const [relativePath, originalPath] of Object.entries(filesToRestore)) {
-        try {
-            const shelfFilePath = path.join(entryDir, relativePath);
-            if (fs.existsSync(shelfFilePath)) {
-                const content = fs.readFileSync(shelfFilePath);
-                const targetPath = path.join(workspacePath, relativePath);
-                
-                // Ensure directory exists
-                const targetDir = path.dirname(targetPath);
-                if (!fs.existsSync(targetDir)) {
-                    fs.mkdirSync(targetDir, { recursive: true });
-                }
-
-                fs.writeFileSync(targetPath, content);
-                restoredCount++;
-            }
-        } catch (error) {
-            errorCount++;
-            console.error(`Failed to restore ${relativePath}:`, error);
-        }
+    const relativePaths = (item.filePath ? [item.filePath] : Object.keys(entry.files)).filter(Boolean);
+    if (relativePaths.length === 0) {
+        vscode.window.showWarningMessage('No files found in this shelf entry.');
+        return;
     }
 
-    if (restoredCount > 0) {
-        vscode.window.showInformationMessage(
-            `Unshelved ${restoredCount} file(s)${errorCount > 0 ? ` (${errorCount} error(s))` : ''}`
-        );
-        // Git repository state will automatically refresh when files change
-        // No need to manually call load() as it doesn't exist in the API
-    } else {
-        vscode.window.showErrorMessage('Failed to unshelve files');
-    }
+    const summary = await restoreFilesFromShelf(entry, relativePaths, workspacePath, entryDir);
+    reportUnshelveSummary(summary);
 }
 
 /**
@@ -355,9 +589,6 @@ export async function unshelveSelection(context: vscode.ExtensionContext, item: 
 
     // Get selected file paths
     const selectedPaths = selectedItems.map(item => item.description!);
-    
-    let restoredCount = 0;
-    let errorCount = 0;
 
     const shelfDir = getShelfDirectory(context);
     const entryDir = path.join(shelfDir, entry.id);
@@ -374,39 +605,8 @@ export async function unshelveSelection(context: vscode.ExtensionContext, item: 
 
     const workspacePath = workspaceFolder.uri.fsPath;
 
-    // Restore each selected file
-    for (const relativePath of selectedPaths) {
-        try {
-            const shelfFilePath = path.join(entryDir, relativePath);
-            if (fs.existsSync(shelfFilePath)) {
-                const content = fs.readFileSync(shelfFilePath);
-                const targetPath = path.join(workspacePath, relativePath);
-                
-                // Ensure directory exists
-                const targetDir = path.dirname(targetPath);
-                if (!fs.existsSync(targetDir)) {
-                    fs.mkdirSync(targetDir, { recursive: true });
-                }
-
-                fs.writeFileSync(targetPath, content);
-                restoredCount++;
-            } else {
-                errorCount++;
-                console.error(`Shelf file not found: ${shelfFilePath}`);
-            }
-        } catch (error) {
-            errorCount++;
-            console.error(`Failed to restore ${relativePath}:`, error);
-        }
-    }
-
-    if (restoredCount > 0) {
-        vscode.window.showInformationMessage(
-            `Unshelved ${restoredCount} file(s)${errorCount > 0 ? ` (${errorCount} error(s))` : ''}`
-        );
-    } else {
-        vscode.window.showErrorMessage('Failed to unshelve files');
-    }
+    const summary = await restoreFilesFromShelf(entry, selectedPaths, workspacePath, entryDir);
+    reportUnshelveSummary(summary);
 }
 
 /**
