@@ -96,7 +96,7 @@ Each workspace has its own separate shelf storage. When you switch between diffe
 
 ### From VSIX
 
-1. Download the `vscode-shelf-0.2.7.vsix` file
+1. Download the `shelf-0.2.7.vsix` file
 2. Open VS Code
 3. Go to Extensions view (Ctrl+Shift+X)
 4. Click the "..." menu and select "Install from VSIX..."
@@ -107,7 +107,7 @@ Each workspace has its own separate shelf storage. When you switch between diffe
 1. Clone this repository
    ```bash
    git clone https://github.com/mahdi-hajian/vscode-shelf.git
-   cd vscode-shelf
+   cd shelf
    ```
 
 2. Install dependencies
