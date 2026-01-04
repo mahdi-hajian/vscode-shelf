@@ -5,6 +5,25 @@ All notable changes to this extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.7] - 2026-01-04
+
+### ✨ Added
+- **Import/Export functionality**: New commands to export and import shelves
+  - `Export Shelves`: Export all shelves to a JSON file with all file contents
+  - `Import Shelves`: Import shelves from a JSON file
+  - Automatically handles duplicate shelf IDs by generating new IDs
+  - Validates import file structure before importing
+  - Base64 encoding for file contents in export format
+  - Export/Import buttons added to Shelf view toolbar
+
+### 🔧 Technical Changes
+- Added `exportShelves()` function in `shelfOperations.ts` to export all shelf data
+- Added `importShelves()` function in `shelfOperations.ts` to import shelf data
+- Created `ExportedShelfData` interface for export file format
+- Registered `shelf.export` and `shelf.import` commands in extension
+
+---
+
 ## [0.2.6] - 2026-01-04
 
 ### 🐛 Fixed

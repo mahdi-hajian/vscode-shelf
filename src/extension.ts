@@ -9,6 +9,8 @@ import {
     deleteShelfItem, 
     clearAll,
     autoShelveChanges,
+    exportShelves,
+    importShelves,
     setShelfProvider as setShelfProviderForOperations
 } from './shelfOperations';
 import { 
@@ -67,6 +69,14 @@ export function activate(context: vscode.ExtensionContext): void {
         shelfProvider.refresh();
     });
 
+    const exportCommand = vscode.commands.registerCommand('shelf.export', async () => {
+        await exportShelves(context);
+    });
+
+    const importCommand = vscode.commands.registerCommand('shelf.import', async () => {
+        await importShelves(context);
+    });
+
     // Refresh shelf when workspace folders change (per project shelf)
     const workspaceChangeListener = vscode.workspace.onDidChangeWorkspaceFolders(() => {
         shelfProvider.refresh();
@@ -91,6 +101,8 @@ export function activate(context: vscode.ExtensionContext): void {
         clearAllCommand,
         viewDiffCommand,
         refreshCommand,
+        exportCommand,
+        importCommand,
         workspaceChangeListener,
         configChangeListener,
         {

@@ -13,6 +13,8 @@ A VS Code extension that provides a "Shelf" feature similar to WebStorm's Shelf,
 - **Per-Project Shelf**: Each workspace has its own separate shelf storage
 - **Delete**: Remove individual shelf entries
 - **Clear All**: Remove all shelved changes
+- **Export Shelves**: Export all shelves to a JSON file for backup or sharing
+- **Import Shelves**: Import shelves from a JSON file
 
 ## Usage
 
@@ -58,6 +60,22 @@ A VS Code extension that provides a "Shelf" feature similar to WebStorm's Shelf,
 - **Clear All**: Click the "Clear All" button in the Shelf view title bar
 - **Refresh**: Click the refresh button to reload shelf entries
 
+### Exporting and Importing Shelves
+
+1. **Export Shelves**:
+   - Click the "Export Shelves" button in the Shelf view title bar
+   - Or use Command Palette: `Shelf: Export Shelves`
+   - Choose a location to save the JSON file
+   - All shelves with their file contents will be exported
+
+2. **Import Shelves**:
+   - Click the "Import Shelves" button in the Shelf view title bar
+   - Or use Command Palette: `Shelf: Import Shelves`
+   - Select the JSON file to import
+   - Confirm the import operation
+   - All shelves from the file will be added to your current workspace
+   - Note: If a shelf with the same ID already exists, a new ID will be generated automatically
+
 ### Per-Project Shelf
 
 Each workspace has its own separate shelf storage. When you switch between different projects, you'll only see the shelf entries for the current workspace. This ensures that shelf entries from different projects don't interfere with each other.
@@ -78,7 +96,7 @@ Each workspace has its own separate shelf storage. When you switch between diffe
 
 ### From VSIX
 
-1. Download the `vscode-shelf-0.2.0.vsix` file
+1. Download the `vscode-shelf-0.2.7.vsix` file
 2. Open VS Code
 3. Go to Extensions view (Ctrl+Shift+X)
 4. Click the "..." menu and select "Install from VSIX..."
@@ -116,3 +134,5 @@ Each workspace has its own separate shelf storage. When you switch between diffe
 | `shelf.delete` | Delete a shelf entry |
 | `shelf.clearAll` | Clear all shelf entries |
 | `shelf.refresh` | Refresh the shelf view |
+| `shelf.export` | Export all shelves to a JSON file |
+| `shelf.import` | Import shelves from a JSON file |

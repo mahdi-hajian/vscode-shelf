@@ -1014,3 +1014,206 @@ export async function autoShelveChanges(context: vscode.ExtensionContext, fromBr
     }
 }
 
+/**
+ * Export interface for shelf export data
+ */
+interface ExportedShelfData {
+    version: string;
+    exportDate: number;
+    entries: Array<{
+        entry: ShelfEntry;
+        files: { [relativePath: string]: string }; // base64 encoded file contents
+    }>;
+}
+
+/**
+ * Exports all shelves to a JSON file
+ */
+export async function exportShelves(context: vscode.ExtensionContext): Promise<void> {
+    const shelfDir = getShelfDirectory(context);
+    if (!fs.existsSync(shelfDir)) {
+        vscode.window.showInformationMessage('No shelves to export');
+        return;
+    }
+
+    // Get all shelf entries
+    const entries: ShelfEntry[] = [];
+    const dirs = fs.readdirSync(shelfDir);
+    for (const dir of dirs) {
+        const entryFile = path.join(shelfDir, dir, 'entry.json');
+        if (fs.existsSync(entryFile)) {
+            try {
+                const content = fs.readFileSync(entryFile, 'utf-8');
+                const entry: ShelfEntry = JSON.parse(content);
+                entries.push(entry);
+            } catch (error) {
+                console.error(`Failed to load shelf entry ${dir}:`, error);
+            }
+        }
+    }
+
+    if (entries.length === 0) {
+        vscode.window.showInformationMessage('No shelves to export');
+        return;
+    }
+
+    // Build export data with file contents
+    const exportData: ExportedShelfData = {
+        version: '1.0',
+        exportDate: Date.now(),
+        entries: []
+    };
+
+    for (const entry of entries) {
+        const entryDir = path.join(shelfDir, entry.id);
+        const files: { [relativePath: string]: string } = {};
+
+        // Read all file contents and encode as base64
+        for (const relativePath of Object.keys(entry.files)) {
+            const shelfFilePath = path.join(entryDir, relativePath);
+            if (fs.existsSync(shelfFilePath)) {
+                try {
+                    const fileContent = fs.readFileSync(shelfFilePath);
+                    files[relativePath] = fileContent.toString('base64');
+                } catch (error) {
+                    console.error(`Failed to read file ${relativePath}:`, error);
+                }
+            }
+        }
+
+        exportData.entries.push({
+            entry: entry,
+            files: files
+        });
+    }
+
+    // Ask user for save location
+    const uri = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.file(`shelf-export-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)}.json`),
+        filters: {
+            'JSON Files': ['json'],
+            'All Files': ['*']
+        },
+        saveLabel: 'Export Shelves'
+    });
+
+    if (!uri) {
+        return; // User cancelled
+    }
+
+    try {
+        const jsonContent = JSON.stringify(exportData, null, 2);
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(jsonContent, 'utf8'));
+        vscode.window.showInformationMessage(`Successfully exported ${entries.length} shelf(es) to ${path.basename(uri.fsPath)}`);
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to export shelves: ${errorMessage}`);
+        console.error('Export error:', error);
+    }
+}
+
+/**
+ * Imports shelves from a JSON file
+ */
+export async function importShelves(context: vscode.ExtensionContext): Promise<void> {
+    // Ask user to select import file
+    const uris = await vscode.window.showOpenDialog({
+        canSelectFiles: true,
+        canSelectFolders: false,
+        canSelectMany: false,
+        filters: {
+            'JSON Files': ['json'],
+            'All Files': ['*']
+        },
+        openLabel: 'Import Shelves'
+    });
+
+    if (!uris || uris.length === 0) {
+        return; // User cancelled
+    }
+
+    const importUri = uris[0];
+
+    try {
+        // Read the import file
+        const fileContent = await vscode.workspace.fs.readFile(importUri);
+        const jsonContent = Buffer.from(fileContent).toString('utf8');
+        const importData: ExportedShelfData = JSON.parse(jsonContent);
+
+        // Validate structure
+        if (!importData.version || !importData.entries || !Array.isArray(importData.entries)) {
+            throw new Error('Invalid export file format');
+        }
+
+        if (importData.entries.length === 0) {
+            vscode.window.showInformationMessage('No shelves found in import file');
+            return;
+        }
+
+        // Ask for confirmation
+        const confirmed = await vscode.window.showWarningMessage(
+            `Import ${importData.entries.length} shelf(es)? This will add them to your current shelves.`,
+            { modal: true },
+            'Import'
+        );
+
+        if (confirmed !== 'Import') {
+            return;
+        }
+
+        const shelfDir = getShelfDirectory(context);
+        if (!fs.existsSync(shelfDir)) {
+            fs.mkdirSync(shelfDir, { recursive: true });
+        }
+
+        let importedCount = 0;
+        let skippedCount = 0;
+
+        // Import each shelf entry
+        for (const exportedEntry of importData.entries) {
+            const entry = exportedEntry.entry;
+            
+            // Check if entry already exists
+            const existingEntryDir = path.join(shelfDir, entry.id);
+            if (fs.existsSync(existingEntryDir)) {
+                // Entry already exists, skip or create new ID
+                const newId = `${Date.now()}-${entry.name.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                entry.id = newId;
+            }
+
+            const entryDir = path.join(shelfDir, entry.id);
+            fs.mkdirSync(entryDir, { recursive: true });
+
+            // Restore file contents
+            for (const relativePath of Object.keys(exportedEntry.files)) {
+                const fileContentBase64 = exportedEntry.files[relativePath];
+                const fileContent = Buffer.from(fileContentBase64, 'base64');
+                
+                const fileDir = path.join(entryDir, path.dirname(relativePath));
+                if (!fs.existsSync(fileDir)) {
+                    fs.mkdirSync(fileDir, { recursive: true });
+                }
+                
+                const filePath = path.join(entryDir, relativePath);
+                fs.writeFileSync(filePath, fileContent);
+            }
+
+            // Save entry.json
+            const entryFile = path.join(entryDir, 'entry.json');
+            fs.writeFileSync(entryFile, JSON.stringify(entry, null, 2));
+
+            // Add to shelf provider
+            shelfProvider.addShelfEntry(entry);
+            importedCount++;
+        }
+
+        vscode.window.showInformationMessage(
+            `Successfully imported ${importedCount} shelf(es)${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}`
+        );
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(`Failed to import shelves: ${errorMessage}`);
+        console.error('Import error:', error);
+    }
+}
+
