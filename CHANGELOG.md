@@ -5,6 +5,23 @@ All notable changes to this extension will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-01-04
+
+### 🐛 Fixed
+- **JSON conflict detection**: Fixed issue where entire JSON files were marked as conflicts
+  - Now only conflicting properties/values are marked with conflict markers
+  - Structural comparison of JSON objects instead of line-by-line diff
+  - Preserves non-conflicting parts of JSON files
+  - Supports both `.json` and `.jsonc` file types
+
+### 🔧 Technical Changes
+- Added JSON-specific conflict detection using structural comparison
+- Implemented `findJsonConflicts()` to compare JSON objects property-by-property
+- Added `buildJsonWithConflicts()` to generate JSON with conflict markers only at conflicting paths
+- Enhanced `insertConflictMarkers()` to detect JSON files and use appropriate conflict resolution strategy
+
+---
+
 ## [0.2.5] - 2025-12-31
 
 ### ✨ Added

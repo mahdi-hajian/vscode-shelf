@@ -418,6 +418,319 @@ async function showDiffForConflict(
 }
 
 /**
+ * Checks if a file is JSON based on its extension
+ */
+function isJsonFile(filePath: string): boolean {
+    const ext = path.extname(filePath).toLowerCase();
+    return ext === '.json' || ext === '.jsonc';
+}
+
+/**
+ * Parses JSON with error handling
+ */
+function tryParseJson(text: string): { success: boolean; data?: any; error?: string } {
+    try {
+        const data = JSON.parse(text);
+        return { success: true, data };
+    } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+}
+
+/**
+ * Deep compares two JSON objects and returns paths of conflicting properties
+ */
+function findJsonConflicts(current: any, shelf: any, path: string[] = []): string[][] {
+    const conflicts: string[][] = [];
+
+    // If types are different, it's a conflict
+    if (typeof current !== typeof shelf) {
+        conflicts.push(path);
+        return conflicts;
+    }
+
+    // If both are primitives and different, it's a conflict
+    if (current !== null && shelf !== null && typeof current !== 'object') {
+        if (current !== shelf) {
+            conflicts.push(path);
+        }
+        return conflicts;
+    }
+
+    // Handle null values
+    if (current === null || shelf === null) {
+        if (current !== shelf) {
+            conflicts.push(path);
+        }
+        return conflicts;
+    }
+
+    // Both are objects/arrays
+    if (Array.isArray(current) && Array.isArray(shelf)) {
+        // For arrays, compare element by element
+        const maxLength = Math.max(current.length, shelf.length);
+        for (let i = 0; i < maxLength; i++) {
+            if (i >= current.length || i >= shelf.length) {
+                conflicts.push([...path, String(i)]);
+            } else {
+                conflicts.push(...findJsonConflicts(current[i], shelf[i], [...path, String(i)]));
+            }
+        }
+    } else if (typeof current === 'object' && typeof shelf === 'object') {
+        // Get all unique keys from both objects
+        const allKeys = new Set([...Object.keys(current), ...Object.keys(shelf)]);
+        
+        for (const key of allKeys) {
+            const currentHasKey = key in current;
+            const shelfHasKey = key in shelf;
+            
+            if (!currentHasKey || !shelfHasKey) {
+                // Key exists in one but not the other
+                conflicts.push([...path, key]);
+            } else {
+                // Key exists in both, recursively check
+                conflicts.push(...findJsonConflicts(current[key], shelf[key], [...path, key]));
+            }
+        }
+    }
+
+    return conflicts;
+}
+
+/**
+ * Gets a value from a nested object using a path array
+ */
+function getValueByPath(obj: any, path: string[]): any {
+    let current = obj;
+    for (const key of path) {
+        if (current === null || current === undefined) {
+            return undefined;
+        }
+        if (Array.isArray(current) && /^\d+$/.test(key)) {
+            current = current[parseInt(key, 10)];
+        } else if (typeof current === 'object') {
+            current = current[key];
+        } else {
+            return undefined;
+        }
+    }
+    return current;
+}
+
+/**
+ * Sets a value in a nested object using a path array
+ */
+function setValueByPath(obj: any, path: string[], value: any): void {
+    let current = obj;
+    for (let i = 0; i < path.length - 1; i++) {
+        const key = path[i];
+        if (Array.isArray(current) && /^\d+$/.test(key)) {
+            const index = parseInt(key, 10);
+            if (!current[index]) {
+                current[index] = {};
+            }
+            current = current[index];
+        } else if (typeof current === 'object') {
+            if (!current[key]) {
+                current[key] = {};
+            }
+            current = current[key];
+        }
+    }
+    const lastKey = path[path.length - 1];
+    if (Array.isArray(current) && /^\d+$/.test(lastKey)) {
+        current[parseInt(lastKey, 10)] = value;
+    } else if (typeof current === 'object') {
+        current[lastKey] = value;
+    }
+}
+
+/**
+ * Inserts conflict markers for JSON files by comparing structure
+ */
+function insertJsonConflictMarkers(
+    targetPath: string,
+    entryName: string,
+    currentText: string,
+    shelfText: string
+): void {
+    const currentParse = tryParseJson(currentText);
+    const shelfParse = tryParseJson(shelfText);
+
+    // If either file is invalid JSON, fall back to line-based diff
+    if (!currentParse.success || !shelfParse.success) {
+        const lineEnding = detectLineEnding(currentText, shelfText) ?? os.EOL;
+        const diffs = diffLines(currentText, shelfText);
+        const builder: string[] = [];
+        let pendingRemoved = '';
+
+        const flushPending = (addedValue: string): void => {
+            builder.push(`<<<<<<< Current Workspace${lineEnding}`);
+            if (pendingRemoved) {
+                builder.push(pendingRemoved);
+                if (!pendingRemoved.endsWith('\n') && !pendingRemoved.endsWith('\r')) {
+                    builder.push(lineEnding);
+                }
+            }
+            builder.push(`=======${lineEnding}`);
+            if (addedValue) {
+                builder.push(addedValue);
+                if (!addedValue.endsWith('\n') && !addedValue.endsWith('\r')) {
+                    builder.push(lineEnding);
+                }
+            }
+            builder.push(`>>>>>>> Shelf: ${entryName}${lineEnding}`);
+            pendingRemoved = '';
+        };
+
+        for (const part of diffs) {
+            if (part.removed) {
+                pendingRemoved += part.value;
+                continue;
+            }
+
+            if (part.added) {
+                flushPending(part.value);
+                continue;
+            }
+
+            if (pendingRemoved) {
+                flushPending('');
+            }
+
+            builder.push(part.value);
+        }
+
+        if (pendingRemoved) {
+            flushPending('');
+        }
+
+        fs.writeFileSync(targetPath, builder.join(''), 'utf8');
+        return;
+    }
+
+    // Find conflicting paths
+    const conflictPaths = findJsonConflicts(currentParse.data, shelfParse.data);
+    
+    if (conflictPaths.length === 0) {
+        // No conflicts, use current version
+        fs.writeFileSync(targetPath, currentText, 'utf8');
+        return;
+    }
+
+    // Build JSON with conflict markers at conflicting properties
+    const currentData = currentParse.data;
+    const shelfData = shelfParse.data;
+    const lineEnding = detectLineEnding(currentText, shelfText) ?? os.EOL;
+    const resultText = buildJsonWithConflicts(currentData, shelfData, conflictPaths, entryName, lineEnding);
+    
+    fs.writeFileSync(targetPath, resultText, 'utf8');
+}
+
+/**
+ * Builds JSON string with conflict markers inserted at conflicting properties
+ */
+function buildJsonWithConflicts(
+    current: any,
+    shelf: any,
+    conflictPaths: string[][],
+    entryName: string,
+    lineEnding: string
+): string {
+    // Create a set of conflict paths for quick lookup
+    const conflictSet = new Set(conflictPaths.map(p => p.join('.')));
+    
+    function buildValue(currentVal: any, shelfVal: any, path: string[], indent: number): string {
+        const pathKey = path.join('.');
+        const isConflict = conflictSet.has(pathKey);
+        const indentStr = '  '.repeat(indent);
+        
+        if (isConflict) {
+            // This is a conflict - show both versions
+            const currentStr = currentVal === undefined 
+                ? '(deleted)' 
+                : JSON.stringify(currentVal, null, 2)
+                    .split('\n')
+                    .map((line, i) => i === 0 ? line : indentStr + '  ' + line)
+                    .join('\n');
+            const shelfStr = shelfVal === undefined 
+                ? '(deleted)' 
+                : JSON.stringify(shelfVal, null, 2)
+                    .split('\n')
+                    .map((line, i) => i === 0 ? line : indentStr + '  ' + line)
+                    .join('\n');
+            
+            return `<<<<<<< Current Workspace${lineEnding}${indentStr}  ${currentStr}${lineEnding}${indentStr}=======${lineEnding}${indentStr}  ${shelfStr}${lineEnding}${indentStr}>>>>>>> Shelf: ${entryName}${lineEnding}`;
+        }
+        
+        // Not a conflict - use current value, but need to handle structure
+        const value = currentVal;
+        
+        if (value === null) {
+            return 'null';
+        }
+        
+        if (value === undefined) {
+            return 'undefined';
+        }
+        
+        if (typeof value === 'string') {
+            return JSON.stringify(value);
+        }
+        
+        if (typeof value === 'number' || typeof value === 'boolean') {
+            return String(value);
+        }
+        
+        if (Array.isArray(value)) {
+            if (value.length === 0) {
+                return '[]';
+            }
+            const shelfArray = Array.isArray(shelfVal) ? shelfVal : [];
+            const maxLength = Math.max(value.length, shelfArray.length);
+            const items: string[] = [];
+            
+            for (let index = 0; index < maxLength; index++) {
+                const itemPath = [...path, String(index)];
+                const currentItem = value[index];
+                const shelfItem = shelfArray[index];
+                
+                if (index < value.length) {
+                    items.push(indentStr + '  ' + buildValue(currentItem, shelfItem, itemPath, indent + 1));
+                }
+            }
+            
+            return '[\n' + items.join(',\n') + '\n' + indentStr + ']';
+        }
+        
+        if (typeof value === 'object') {
+            const keys = Object.keys(value);
+            const shelfKeys = shelfVal && typeof shelfVal === 'object' ? Object.keys(shelfVal) : [];
+            const allKeys = new Set([...keys, ...shelfKeys]);
+            
+            if (allKeys.size === 0) {
+                return '{}';
+            }
+            
+            const pairs: string[] = [];
+            for (const key of allKeys) {
+                const keyPath = [...path, key];
+                const currentKeyValue = value[key];
+                const shelfKeyValue = shelfVal && typeof shelfVal === 'object' ? shelfVal[key] : undefined;
+                const keyValue = buildValue(currentKeyValue, shelfKeyValue, keyPath, indent + 1);
+                pairs.push(indentStr + '  ' + JSON.stringify(key) + ': ' + keyValue);
+            }
+            
+            return '{\n' + pairs.join(',\n') + '\n' + indentStr + '}';
+        }
+        
+        return JSON.stringify(value);
+    }
+    
+    return buildValue(current, shelf, [], 0);
+}
+
+/**
  * Writes git-style conflict markers to the target file.
  */
 function insertConflictMarkers(
@@ -428,6 +741,14 @@ function insertConflictMarkers(
 ): void {
     const currentText = currentContent.toString('utf8');
     const shelfText = shelfContent.toString('utf8');
+
+    // Check if this is a JSON file and handle it specially
+    if (isJsonFile(targetPath)) {
+        insertJsonConflictMarkers(targetPath, entryName, currentText, shelfText);
+        return;
+    }
+
+    // For non-JSON files, use line-based diff
     const lineEnding = detectLineEnding(currentText, shelfText) ?? os.EOL;
 
     const diffs = diffLines(currentText, shelfText);
