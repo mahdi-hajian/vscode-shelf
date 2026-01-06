@@ -207,6 +207,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
+    "prepack": "npm run compile",
+    "pack": "vsce package",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./"
   },
@@ -216,6 +218,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
+    "@vscode/vsce": "^3.7.1",
     "diff": "^8.0.2"
   }
 }
