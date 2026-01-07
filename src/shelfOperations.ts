@@ -742,11 +742,11 @@ function insertConflictMarkers(
     const currentText = currentContent.toString('utf8');
     const shelfText = shelfContent.toString('utf8');
 
-    // Check if this is a JSON file and handle it specially
-    if (isJsonFile(targetPath)) {
-        insertJsonConflictMarkers(targetPath, entryName, currentText, shelfText);
-        return;
-    }
+    // // Check if this is a JSON file and handle it specially
+    // if (isJsonFile(targetPath)) {
+    //     insertJsonConflictMarkers(targetPath, entryName, currentText, shelfText);
+    //     return;
+    // }
 
     // For non-JSON files, use line-based diff
     const lineEnding = detectLineEnding(currentText, shelfText) ?? os.EOL;
